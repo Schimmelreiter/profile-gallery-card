@@ -168,3 +168,36 @@ console.log('video tests passed');
   assert.strictEqual(gr.querySelector('.tc').textContent, '3 / 3');
   console.log('0.4.1 tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
+// 0.4.3: note icon and favourite star in grid tiles
+(async () => {
+  const store = {};
+  const conn = { sendMessagePromise: async (m) => { if (m.type === 'frontend/get_user_data') return { value: store[m.key] }; store[m.key] = m.value; return null; } };
+  const gc = document.createElement('profile-gallery-card');
+  document.body.appendChild(gc);
+  gc.setConfig({ source: { entity: 'sensor.g2', attribute: 'l' }, preset: 'none', mode: 'grid', details: {}, note: { field: 'kommentar', service: 'x.y' } });
+  gc.hass = { states: { 'sensor.g2': { state: '1', attributes: { l: [{ id: 'a', title: 'A', images: ['/1', '/2'], kommentar: 'nett' }, { id: 'b', title: 'B', images: ['/3'] }] } } }, language: 'de', connection: conn };
+  await new Promise((r) => setTimeout(r, 0));
+  const gr = gc.shadowRoot;
+  assert.strictEqual(gr.querySelectorAll('.notei').length, 1);
+  assert.strictEqual(gr.querySelector('.notei').getAttribute('title'), 'nett');
+  assert.strictEqual(gr.querySelectorAll('.tfav').length, 2);
+  gr.querySelector('.tb.next').click();
+  gr.querySelector('.tfav').click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepStrictEqual(store['profile-gallery-card'].favs, { 'none:a': '/2' });
+  assert.strictEqual(gr.querySelector('.tshow img').getAttribute('src'), '/2');
+  assert.strictEqual(gr.querySelector('.tc').textContent, '1 / 2');
+  console.log('0.4.3 tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });
+// 0.4.3: preset CSS and styles option reach the card
+(async () => {
+  const sc = document.createElement('profile-gallery-card');
+  document.body.appendChild(sc);
+  sc.setConfig({ source: { entity: 'sensor.k', attribute: 'l' }, preset: 'nutten_scan_karten', mode: 'grid', styles: '.x9 { color: red; }' });
+  sc.hass = { states: { 'sensor.k': { state: '1', attributes: { l: [{ uid: 'u', name: 'N', karte_html: '<div class="tabu">T</div>' }] } } }, language: 'de' };
+  await new Promise((r) => setTimeout(r, 0));
+  const css = sc.shadowRoot.querySelector('style').textContent;
+  assert.ok(css.includes('.tabu {') && css.includes('.x9 {'));
+  assert.ok(sc.shadowRoot.querySelector('.html .tabu'));
+  console.log('styles tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });

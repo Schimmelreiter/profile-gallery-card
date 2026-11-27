@@ -43,6 +43,7 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 | `date` | date input on each entry for a `date` entity named in a field: `{ field, when }` (`when`: only while that switch is on) |
 | `details` | ⓘ button opening a window with HTML from fields: `{ head, body }`, plus all pictures, actions and the note |
 | `note` | editable note in the detail window: `{ field, name, service, data }`; in `data`, `{value}` is the text and `{path}` a field of the entry |
+| `styles` | extra CSS for the card and the detail window, e.g. for classes in `html` (`.tabu { color: red; }`); presets with HTML bring their own |
 | `empty_text` | text when there are no entries |
 
 ### Sources

@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.4.2';
+const PGC_VERSION = '0.4.3';
 const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
 const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
@@ -80,6 +80,23 @@ const PRESETS = {
     lines: ['phones.*.value', 'emails.*.value'], badges: ['groups.*'], date: 'birthday', text: 'note',
   },
   calendar: { title: 'summary', subtitle: '{location}', date: 'start', text: 'text', image: 'image', images: 'images', url: 'link' },
+};
+
+// extra CSS for the HTML that a preset's data brings along (classes of that integration)
+const PRESET_CSS = {
+  nutten_scan_karten: `
+.where { color: var(--secondary-text-color); }
+.period, .present { margin-top: 4px; }
+table.pairs { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 8px 0 4px; }
+table.pairs td { width: 50%; vertical-align: top; padding: 1px 6px 1px 0; overflow-wrap: anywhere; }
+.long, .vor { margin: 8px 0; }
+.tabu { margin-top: 8px; padding: 3px 8px; border-left: 3px solid #ff6b6b; color: #ff8a8a; background: rgba(255, 90, 90, .1); border-radius: 0 4px 4px 0; }
+.status { margin: 8px 0 4px; color: var(--secondary-text-color); }
+.warn { color: var(--warning-color, #ffc107); font-weight: 600; }
+code { background: var(--secondary-background-color, rgba(127,127,127,.2)); padding: 1px 4px; border-radius: 4px; font-size: 12px; color: var(--primary-text-color); }
+table.sedcard { width: 100%; border-collapse: collapse; margin: 8px 0; }
+table.sedcard th { width: 38%; color: var(--secondary-text-color); }
+`,
 };
 
 // raw object → normalized item { v, id, title, subtitle, image, images[], url, text, badges[], lines[], date }
@@ -201,6 +218,7 @@ class ProfileGalleryCard extends HTMLElement {
     } catch (e) { this._favs = this._favs || {}; }
     this._sig = ''; this._render();
   }
+  _css() { return (PRESET_CSS[this._config.preset] || '') + (this._config.styles || ''); }
   _favId(it) { return `${this._config.preset || 'none'}:${it.id}`; }
   _isFav(it, url) { return !!url && (this._favs || {})[this._favId(it)] === imgBase(url); }
   async _toggleFav(it, url) {
@@ -295,7 +313,7 @@ class ProfileGalleryCard extends HTMLElement {
     const keepFocus = this.shadowRoot.activeElement && this.shadowRoot.activeElement.classList.contains('search');
     const pos = keepFocus ? this.shadowRoot.activeElement.selectionStart : 0;
     if (!this._content) {
-      this.shadowRoot.innerHTML = `<style>${CSS}</style><ha-card><div class="ctrl"></div><div class="content"></div></ha-card>`;
+      this.shadowRoot.innerHTML = `<style>${CSS}${this._css()}</style><ha-card><div class="ctrl"></div><div class="content"></div></ha-card>`;
       this._content = this.shadowRoot.querySelector('.content');
       this._ctrlEl = this.shadowRoot.querySelector('.ctrl');
     }
@@ -338,12 +356,20 @@ class ProfileGalleryCard extends HTMLElement {
       }
     }
     const det = c.details ? `<button class="act" data-det="${i}" title="Details"><ha-icon icon="mdi:information-outline"></ha-icon></button>` : '';
-    return btn || date || det ? `<div class="acts">${btn}${date}${det}</div>` : '';
+    // own note written: icon with the text as tooltip (click opens the detail window)
+    const nt = c.note ? asText(getPath(it.raw, c.note.field)).trim() : '';
+    const note = nt ? `<button class="act notei"${c.details ? ` data-det="${i}"` : ''} title="${esc(nt)}"><ha-icon icon="mdi:comment-text-outline"></ha-icon></button>` : '';
+    return btn || date || det || note ? `<div class="acts">${btn}${date}${note}${det}</div>` : '';
   }
   _title(it) { return it.url ? `<a class="title" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.title)}</a>` : `<span class="title">${esc(it.title)}</span>`; }
   _thumb(it, i, cls) {
     return it.image ? `<img class="${cls}" loading="lazy" src="${esc(it.image)}" data-open="${i}" alt="">`
       : `<div class="${cls} ph">${esc((it.title || '?').trim().charAt(0).toUpperCase())}</div>`;
+  }
+  _star(it, i, url) {
+    if (!url) return '';
+    const on = this._isFav(it, url);
+    return `<button class="fav tfav${on ? ' on' : ''}" data-fav="${i}" title="Als Favorit zuerst zeigen" aria-label="favourite">${on ? '★' : '☆'}</button>`;
   }
   _count(it, i, cls) {
     const n = it.images.length, v = it.videos.length;
@@ -360,10 +386,10 @@ class ProfileGalleryCard extends HTMLElement {
     if (n > 1 || it.videos.length) {
       const nav = n > 1 ? `<button class="tb prev" data-ti="${i}:-1" aria-label="previous picture">‹</button><button class="tb next" data-ti="${i}:1" aria-label="next picture">›</button><span class="tc">${k + 1} / ${n}</span>` : '';
       const vids = it.videos.length ? `<span class="n on tv" data-video="${i}">${it.videos.length} 🎞</span>` : '';
-      return `<div class="tile"><div class="tshow" data-tile="${i}"><img class="big" loading="lazy" src="${esc(it.images[k] || it.image)}" data-open="${i}" alt="">${nav}${vids}</div>` +
+      return `<div class="tile"><div class="tshow" data-tile="${i}"><img class="big" loading="lazy" src="${esc(it.images[k] || it.image)}" data-open="${i}" alt="">${nav}${vids}${this._star(it, i, it.images[k])}</div>` +
         `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
     }
-    return `<div class="tile">${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}` +
+    return `<div class="tile">${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}${it.image ? this._star(it, i, it.image) : ''}` +
       `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
   }
   _browse(items, lang) {
@@ -489,7 +515,7 @@ class ProfileGalleryCard extends HTMLElement {
     this._closeDialog();
     const box = document.createElement('div');
     box.className = 'pgc-dialog';
-    box.innerHTML = `<style>${DLG_CSS}</style><div class="dlg"><div class="dh"><button class="x" aria-label="close">×</button><span class="dt"></span></div><div class="db"></div></div>`;
+    box.innerHTML = `<style>${DLG_CSS}${this._css()}</style><div class="dlg"><div class="dh"><button class="x" aria-label="close">×</button><span class="dt"></span></div><div class="db"></div></div>`;
     box.addEventListener('click', (e) => { if (e.target === box) this._closeDialog(); });
     box.querySelector('.x').addEventListener('click', () => this._closeDialog());
     this._dlgKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.pgc-lightbox')) this._closeDialog(); };
@@ -583,6 +609,8 @@ ha-card { overflow: hidden; padding-bottom: 8px; }
 .tb.prev { left: 4px; } .tb.next { right: 4px; }
 .tc { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); color: #fff; padding: 1px 8px; border-radius: 8px; font-size: .8em; }
 .tv { top: 6px; right: 6px; }
+.tfav { right: auto; left: 8px; }
+.notei { color: var(--primary-color); }
 .ctile .controls { padding: 0; }
 .crow { display: flex; align-items: center; gap: 4px; min-height: 48px; }
 .ccell { flex: 1; min-width: 0; }
@@ -753,4 +781,4 @@ if (!window.customCards.some((c) => c.type === 'profile-gallery-card')) {
   });
 }
 console.info(`%c PROFILE-GALLERY-CARD %c ${PGC_VERSION} `, 'background:#5b3fa8;color:#fff;border-radius:3px 0 0 3px', 'background:#eee;color:#333;border-radius:0 3px 3px 0');
-if (typeof module !== 'undefined') module.exports = { getPath, field, normalize, calendarObj, PRESETS, globRe, fmtDate };
+if (typeof module !== 'undefined') module.exports = { getPath, field, normalize, calendarObj, PRESETS, PRESET_CSS, globRe, fmtDate };
