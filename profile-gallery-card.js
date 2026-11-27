@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.4.0';
+const PGC_VERSION = '0.4.1';
 const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
 const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
@@ -289,7 +289,7 @@ class ProfileGalleryCard extends HTMLElement {
     const tools = (c.search ? `<input class="search" type="search" placeholder="${esc(c.search_placeholder || '🔍')}" value="${esc(this._q)}">` : '');
     let body;
     if (!items.length) body = `<div class="empty">${esc(this._error || c.empty_text || (q ? '–' : 'No entries'))}</div>`;
-    else if (c.mode === 'grid') body = `<div class="grid" style="--cols:${Number(c.columns) || 3}">${items.map((it, i) => this._tile(it, i, lang)).join('')}</div>`;
+    else if (c.mode === 'grid') body = `<div class="grid${c.image_height ? ' fixedh' : ''}" style="--cols:${Number(c.columns) || 3}">${this._ctrlInGrid() ? '<div class="tile ctile"></div>' : ''}${items.map((it, i) => this._tile(it, i, lang)).join('')}</div>`;
     else if (c.mode === 'browse') body = this._browse(items, lang);
     else body = `<div class="list">${items.map((it, i) => this._row(it, i, lang)).join('')}</div>`;
     const keepFocus = this.shadowRoot.activeElement && this.shadowRoot.activeElement.classList.contains('search');
@@ -304,7 +304,8 @@ class ProfileGalleryCard extends HTMLElement {
     this._ctrlEl.innerHTML = '';
     if (head) this._ctrlEl.insertAdjacentHTML('afterbegin', head);
     this._controls();
-    if (this._ctrlBox) this._ctrlEl.appendChild(this._ctrlBox);
+    const ct = this._content.querySelector('.ctile');
+    if (this._ctrlBox) (ct || this._ctrlEl).appendChild(this._ctrlBox);
     this._wire();
     if (keepFocus) { const s = this.shadowRoot.querySelector('.search'); if (s) { s.focus(); s.setSelectionRange(pos, pos); } }
   }
@@ -354,6 +355,14 @@ class ProfileGalleryCard extends HTMLElement {
       `${this._count(it, i, 'n')}</div>`;
   }
   _tile(it, i, lang) {
+    // slideshow in the tile: arrows, swipe, counter; a click opens the full-screen view at that picture
+    const n = it.images.length, k = Math.min(this._img[it.id] || 0, Math.max(0, n - 1));
+    if (n > 1 || it.videos.length) {
+      const nav = n > 1 ? `<button class="tb prev" data-ti="${i}:-1" aria-label="previous picture">‹</button><button class="tb next" data-ti="${i}:1" aria-label="next picture">›</button><span class="tc">${k + 1} / ${n}</span>` : '';
+      const vids = it.videos.length ? `<span class="n on tv" data-video="${i}">${it.videos.length} 🎞</span>` : '';
+      return `<div class="tile"><div class="tshow" data-tile="${i}"><img class="big" loading="lazy" src="${esc(it.images[k] || it.image)}" data-open="${i}" alt="">${nav}${vids}</div>` +
+        `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
+    }
     return `<div class="tile">${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}` +
       `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
   }
@@ -386,7 +395,7 @@ class ProfileGalleryCard extends HTMLElement {
       e.stopPropagation(); const it = this._shown[this._idx]; this._img[it.id] = +b.dataset.img; this._render();
     }));
     r.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
-      const it = this._shown[+el.dataset.open]; if (it && (it.images.length || it.videos.length)) this._lightbox(it, this._config.mode === 'browse' ? (this._img[it.id] || 0) : 0);
+      const it = this._shown[+el.dataset.open]; if (it && (it.images.length || it.videos.length)) this._lightbox(it, this._config.mode === 'list' ? 0 : (this._img[it.id] || 0));
     }));
     r.querySelectorAll('[data-fav]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation(); const it = this._shown[+b.dataset.fav]; if (!it) return;
@@ -394,6 +403,15 @@ class ProfileGalleryCard extends HTMLElement {
     }));
     r.querySelectorAll('[data-video]').forEach((el) => el.addEventListener('click', (e) => {
       e.stopPropagation(); const it = this._shown[+el.dataset.video]; if (it) this._lightbox(it, it.images.length);
+    }));
+    r.querySelectorAll('[data-ti]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const [i, d] = b.dataset.ti.split(':').map(Number), it = this._shown[i], n = it.images.length;
+      this._img[it.id] = (((this._img[it.id] || 0) + d) % n + n) % n; this._render();
+    }));
+    r.querySelectorAll('[data-tile]').forEach((t) => swipe(t, (d) => {
+      const it = this._shown[+t.dataset.tile], n = it.images.length;
+      if (n > 1) { this._img[it.id] = (((this._img[it.id] || 0) + d) % n + n) % n; this._render(); }
     }));
     this._wireActs(r, this._shown);
     r.querySelectorAll('[data-det]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); this._openDialog(this._shown[+b.dataset.det]); }));
@@ -412,6 +430,8 @@ class ProfileGalleryCard extends HTMLElement {
     }));
   }
 
+  // controls as the first tile of the grid (default in grid mode), otherwise above the gallery
+  _ctrlInGrid() { return this._config.mode === 'grid' && this._config.controls_position !== 'top' && !!(this._config.controls || this._config.controls_from); }
   // ---------- controls above the gallery (any entities; rows of cells) ----------
   _controls() {
     const c = this._config, h = this._hass;
@@ -445,6 +465,8 @@ class ProfileGalleryCard extends HTMLElement {
           line.appendChild(slot);
           helpers.then((hp) => {
             const conf = { entity: cell.entity }; if (cell.name) conf.name = cell.name;
+            // compact rows without icons (needs card-mod; harmless without it)
+            if (this._config.controls_icons !== true) conf.card_mod = { style: { 'hui-generic-entity-row $': 'state-badge { display: none; } .info { margin-left: 0 !important; }' } };
             const el = hp ? hp.createRowElement(conf) : Object.assign(document.createElement('div'), { textContent: cell.name || cell.entity });
             el.hass = this._hass; this._ctrlRows.push(el); slot.appendChild(el);
           });
@@ -555,11 +577,18 @@ function swipe(el, cb) {
 const CSS = `
 ha-card { overflow: hidden; padding-bottom: 8px; }
 .ctrl .controls { padding: 0 8px 8px; }
-.crow { display: flex; align-items: center; gap: 4px; }
+.ctile { padding: 8px 4px 4px; align-self: start; }
+.tshow { position: relative; touch-action: pan-y; }
+.tb { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.4); color: #fff; border: 0; width: 32px; height: 44px; font-size: 24px; cursor: pointer; border-radius: 6px; }
+.tb.prev { left: 4px; } .tb.next { right: 4px; }
+.tc { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); color: #fff; padding: 1px 8px; border-radius: 8px; font-size: .8em; }
+.tv { top: 6px; right: 6px; }
+.ctile .controls { padding: 0; }
+.crow { display: flex; align-items: center; gap: 4px; min-height: 48px; }
 .ccell { flex: 1; min-width: 0; }
 .cgap { width: 36px; flex: none; }
 .clock { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--secondary-text-color); cursor: pointer; }
-.clock.on { color: var(--primary-color); }
+.clock.on { color: var(--warning-color, #ffc107); }
 .html h3 { margin: 0 0 4px; font-size: 1.1em; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .act { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); border-radius: 16px; padding: 3px 10px; cursor: pointer; font: inherit; }
@@ -586,10 +615,11 @@ a.title:hover { text-decoration: underline; }
 .n { font-size: .8em; color: var(--secondary-text-color); cursor: pointer; white-space: nowrap; }
 .grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 12px; padding: 0 16px; }
 @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.tile { position: relative; border-radius: 12px; overflow: hidden; background: var(--secondary-background-color); }
+.tile { position: relative; border-radius: 12px; overflow: hidden; background: var(--secondary-background-color); align-self: start; }
 .tile .info { padding: 8px; }
 .big { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; cursor: pointer; }
 .big.ph { display: flex; cursor: default; }
+.fixedh .big { aspect-ratio: auto; height: var(--img-h); }
 .n.on { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: #fff; padding: 1px 6px; border-radius: 8px; }
 .browse { touch-action: pan-y; }
 .stage { position: relative; background: #000; }

@@ -36,6 +36,8 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 | `join` | field holding an entity id; that entity's attributes complete the entry (non-empty fields of the entry win) |
 | `controls` | entities shown as controls above the gallery: list of rows; a cell is an entity id, `{ entity, name }`, `{ gap: true }` or `{ toggle: entity }` (round on/off button) |
 | `controls_from` | the same rows read from an attribute: `{ entity, attribute }` |
+| `controls_position` | in `grid` mode the controls are the first tile; `top` puts them above the gallery |
+| `controls_icons` | `true` keeps the entity icons in the controls (default: hidden, needs card-mod) |
 | `actions` | buttons on each entry that toggle an entity named in a field: `[{ field, icon, icon_on, name }]` |
 | `date` | date input on each entry for a `date` entity named in a field: `{ field, when }` (`when`: only while that switch is on) |
 | `details` | ⓘ button opening a window with HTML from fields: `{ head, body }`, plus all pictures, actions and the note |

@@ -152,3 +152,19 @@ console.log('video tests passed');
   assert.ok(!document.querySelector('.pgc-dialog'));
   console.log('0.4.0 tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });
+// 0.4.1: slideshow in grid tiles, controls as first tile
+(async () => {
+  const gc = document.createElement('profile-gallery-card');
+  document.body.appendChild(gc);
+  gc.setConfig({ source: { entity: 'sensor.g', attribute: 'l' }, preset: 'none', mode: 'grid', controls: [['input_number.x']] });
+  gc.hass = { states: { 'sensor.g': { state: '1', attributes: { l: [{ id: 'a', title: 'A', images: ['/1', '/2', '/3'] }] } }, 'input_number.x': { state: '1', attributes: {} } }, language: 'de' };
+  const gr = gc.shadowRoot;
+  assert.ok(gr.querySelector('.grid > .ctile .controls'));
+  assert.strictEqual(gr.querySelector('.tc').textContent, '1 / 3');
+  gr.querySelector('.tb.next').click();
+  assert.strictEqual(gr.querySelector('.tc').textContent, '2 / 3');
+  assert.ok(gr.querySelector('.tshow img').getAttribute('src') === '/2');
+  gr.querySelector('.tb.prev').click(); gr.querySelector('.tb.prev').click();
+  assert.strictEqual(gr.querySelector('.tc').textContent, '3 / 3');
+  console.log('0.4.1 tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });
