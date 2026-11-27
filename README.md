@@ -47,7 +47,7 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 
 ### Fields
 
-Each entry is mapped to this format (version 1): `title`, `subtitle`, `image`, `images`, `url`, `text`, `badges`, `lines`, `date`, `id`.
+Each entry is mapped to this format (version 1): `title`, `subtitle`, `image`, `images`, `videos`, `url`, `text`, `badges`, `lines`, `date`, `id`. Videos are played in the full-screen view after the pictures.
 
 A field is a **path** (`name`, `last_meet.club`, `profiles.0.url`, `phones.*.value` for all values of a list) or a **format** with paths in braces: `"{organization} · {city}"`. Parts between ` · ` that are empty disappear. `badges` and `lines` take a list.
 
@@ -141,6 +141,7 @@ The card works on this format internally (`v: 1`). Integrations can deliver it d
 | `id` | stable ID |
 | `title`, `subtitle` | name and second line |
 | `image`, `images[]` | main picture and all pictures |
+| `videos[]` | video addresses (shown after the pictures) |
 | `url` | link of the title |
 | `text` | longer text |
 | `badges[]`, `lines[]` | small labels and extra lines |

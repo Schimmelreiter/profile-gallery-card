@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.1.0';
+const PGC_VERSION = '0.2.0';
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
 
 // ---------- helpers ----------
@@ -58,9 +58,9 @@ const fmtDate = (v, lang) => {
 // ---------- presets (field mappings for known data) ----------
 const PRESETS = {
   // item format v1 as is
-  none: { title: 'title', subtitle: 'subtitle', image: 'image', images: 'images', url: 'url', text: 'text', badges: 'badges', lines: 'lines', date: 'date' },
+  none: { title: 'title', subtitle: 'subtitle', image: 'image', images: 'images', videos: 'videos', url: 'url', text: 'text', badges: 'badges', lines: 'lines', date: 'date' },
   swinger_companion: {
-    title: 'name', image: 'thumb', images: 'pics', url: 'profiles.0.url',
+    title: 'name', image: 'thumb', images: 'pics', videos: 'videos', url: 'profiles.0.url',
     subtitle: '{last_meet.where} · {last_meet.club}', date: 'last_meet.at', text: 'notes',
     badges: ['status', 'profiles.*.pf'],
   },
@@ -81,6 +81,8 @@ function normalize(raw, fields, idx) {
   let images = (Array.isArray(imagesV) ? imagesV : imagesV ? [imagesV] : []).map((x) => (isObj(x) ? x.url || x.src || '' : String(x || ''))).filter(Boolean);
   const image = asText(field(raw, fields.image)) || images[0] || '';
   if (image && !images.includes(image)) images = [image, ...images];
+  const videosV = field(raw, fields.videos);
+  const videos = (Array.isArray(videosV) ? videosV : videosV ? [videosV] : []).map((x) => (isObj(x) ? x.url || x.src || '' : String(x || ''))).filter(Boolean);
   const badges = [].concat(field(raw, fields.badges) || []).flat().map(asText).filter(Boolean);
   const lines = [].concat(field(raw, fields.lines) || []).map(asText).filter(Boolean);
   return {
@@ -88,7 +90,7 @@ function normalize(raw, fields, idx) {
     id: asText(field(raw, fields.id || 'id')) || String(idx),
     title: asText(field(raw, fields.title)) || '–',
     subtitle: asText(field(raw, fields.subtitle)),
-    image, images,
+    image, images, videos,
     url: asText(field(raw, fields.url)),
     text: asText(field(raw, fields.text)),
     badges, lines,
@@ -219,7 +221,7 @@ class ProfileGalleryCard extends HTMLElement {
   _render() {
     if (!this._config || !this._hass) return;
     const all = this._items();
-    const sig = JSON.stringify([all.map((i) => [i.id, i.title, i.subtitle, i.images, i.badges, i.text, i.date, i.lines, i.url]), this._idx, this._img, this._q, this._config]);
+    const sig = JSON.stringify([all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.text, i.date, i.lines, i.url]), this._idx, this._img, this._q, this._config]);
     if (sig === this._sig) return;
     this._sig = sig;
     const lang = (this._hass.locale && this._hass.locale.language) || this._hass.language || 'en';
@@ -253,13 +255,17 @@ class ProfileGalleryCard extends HTMLElement {
     return it.image ? `<img class="${cls}" loading="lazy" src="${esc(it.image)}" data-open="${i}" alt="">`
       : `<div class="${cls} ph">${esc((it.title || '?').trim().charAt(0).toUpperCase())}</div>`;
   }
+  _count(it, i, cls) {
+    const n = it.images.length, v = it.videos.length;
+    return n > 1 || v ? `<span class="${cls}" data-open="${i}">${n > 1 ? n + ' 📷' : ''}${n > 1 && v ? ' ' : ''}${v ? v + ' 🎞' : ''}</span>` : '';
+  }
   _row(it, i, lang) {
     return `<div class="row">${this._thumb(it, i, 'av')}<div class="info">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}` +
       `${it.text && this._config.show_text !== false ? `<div class="text clamp">${esc(it.text)}</div>` : ''}</div>` +
-      `${it.images.length > 1 ? `<span class="n" data-open="${i}">${it.images.length} 📷</span>` : ''}</div>`;
+      `${this._count(it, i, 'n')}</div>`;
   }
   _tile(it, i, lang) {
-    return `<div class="tile">${this._thumb(it, i, 'big')}${it.images.length > 1 ? `<span class="n on" data-open="${i}">${it.images.length} 📷</span>` : ''}` +
+    return `<div class="tile">${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}` +
       `<div class="info">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}</div></div>`;
   }
   _browse(items, lang) {
@@ -269,7 +275,8 @@ class ProfileGalleryCard extends HTMLElement {
       `<button class="ib prev" data-img="${(k - 1 + n) % n}" aria-label="previous picture">‹</button><button class="ib next" data-img="${(k + 1) % n}" aria-label="next picture">›</button>` : '';
     const jump = this._config.jump !== false && items.length > 2
       ? `<select class="jump">${items.map((x, j) => `<option value="${j}"${j === i ? ' selected' : ''}>${esc(x.title)}</option>`).join('')}</select>` : '';
-    return `<div class="browse"><div class="stage">${pic}${dots}</div>` +
+    const vids = it.videos.length ? `<span class="n on" data-video="${i}">${it.videos.length} 🎞</span>` : '';
+    return `<div class="browse"><div class="stage">${pic}${dots}${vids}</div>` +
       `<div class="info binfo">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}${it.text ? `<div class="text">${esc(it.text)}</div>` : ''}</div>` +
       `<div class="nav"><button class="nb" data-go="-1" ${items.length < 2 ? 'disabled' : ''} aria-label="previous">‹</button>` +
       `<span class="ctr">${i + 1}/${items.length}</span>${jump}<button class="nb" data-go="1" ${items.length < 2 ? 'disabled' : ''} aria-label="next">›</button></div></div>`;
@@ -288,26 +295,35 @@ class ProfileGalleryCard extends HTMLElement {
       e.stopPropagation(); const it = this._shown[this._idx]; this._img[it.id] = +b.dataset.img; this._render();
     }));
     r.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
-      const it = this._shown[+el.dataset.open]; if (it && it.images.length) this._lightbox(it, this._config.mode === 'browse' ? (this._img[it.id] || 0) : 0);
+      const it = this._shown[+el.dataset.open]; if (it && (it.images.length || it.videos.length)) this._lightbox(it, this._config.mode === 'browse' ? (this._img[it.id] || 0) : 0);
+    }));
+    r.querySelectorAll('[data-video]').forEach((el) => el.addEventListener('click', (e) => {
+      e.stopPropagation(); const it = this._shown[+el.dataset.video]; if (it) this._lightbox(it, it.images.length);
     }));
     const stage = r.querySelector('.browse');
     if (stage) swipe(stage, (d) => this._go(d));
   }
 
   _lightbox(it, start) {
-    let k = start;
+    const media = [...it.images.map((u) => ({ u })), ...it.videos.map((u) => ({ u, v: true }))];
+    if (!media.length) return;
+    let k = Math.min(start, media.length - 1);
     const box = document.createElement('div');
     box.className = 'pgc-lightbox';
-    box.innerHTML = `<style>${LB_CSS}</style><img alt=""><button class="x" aria-label="close">×</button>` +
-      (it.images.length > 1 ? '<button class="p" aria-label="previous">‹</button><button class="n" aria-label="next">›</button><span class="c"></span>' : '');
-    const img = box.querySelector('img'), ctr = box.querySelector('.c');
-    const show = () => { img.src = it.images[k]; if (ctr) ctr.textContent = `${k + 1}/${it.images.length} · ${it.title}`; };
-    const go = (d) => { k = (k + d + it.images.length) % it.images.length; show(); };
+    box.innerHTML = `<style>${LB_CSS}</style><div class="m"></div><button class="x" aria-label="close">×</button>` +
+      (media.length > 1 ? '<button class="p" aria-label="previous">‹</button><button class="n" aria-label="next">›</button>' : '') + '<span class="c"></span>';
+    const m = box.querySelector('.m'), ctr = box.querySelector('.c');
+    const show = () => {
+      const x = media[k];
+      m.innerHTML = x.v ? `<video src="${esc(x.u)}" controls autoplay playsinline></video>` : `<img src="${esc(x.u)}" alt="">`;
+      ctr.textContent = `${k + 1}/${media.length} · ${it.title}`;
+    };
+    const go = (d) => { k = (k + d + media.length) % media.length; show(); };
     const close = () => { box.remove(); document.removeEventListener('keydown', key); };
     const key = (e) => { if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') go(-1); else if (e.key === 'ArrowRight') go(1); };
     box.querySelector('.x').addEventListener('click', close);
-    box.addEventListener('click', (e) => { if (e.target === box) close(); });
-    if (it.images.length > 1) { box.querySelector('.p').addEventListener('click', () => go(-1)); box.querySelector('.n').addEventListener('click', () => go(1)); swipe(box, go); }
+    box.addEventListener('click', (e) => { if (e.target === box || e.target === m) close(); });
+    if (media.length > 1) { box.querySelector('.p').addEventListener('click', () => go(-1)); box.querySelector('.n').addEventListener('click', () => go(1)); swipe(box, go); }
     document.addEventListener('keydown', key);
     show();
     document.body.appendChild(box);
@@ -354,6 +370,7 @@ a.title:hover { text-decoration: underline; }
 .n.on { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: #fff; padding: 1px 6px; border-radius: 8px; }
 .browse { touch-action: pan-y; }
 .stage { position: relative; background: #000; }
+.stage .n.on { cursor: pointer; }
 .hero { width: 100%; height: var(--img-h); object-fit: contain; display: block; cursor: zoom-in; }
 .hero.ph { background: var(--secondary-background-color); font-size: 4em; }
 .dots { position: absolute; bottom: 8px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; }
@@ -370,7 +387,8 @@ a.title:hover { text-decoration: underline; }
 `;
 const LB_CSS = `
 .pgc-lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; touch-action: pan-y; }
-.pgc-lightbox img { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+.pgc-lightbox .m { display: contents; }
+.pgc-lightbox img, .pgc-lightbox video { max-width: 100vw; max-height: 100vh; object-fit: contain; }
 .pgc-lightbox button { position: absolute; background: rgba(255,255,255,.12); color: #fff; border: 0; font-size: 34px; width: 52px; height: 64px; border-radius: 8px; cursor: pointer; }
 .pgc-lightbox .x { top: 12px; right: 12px; height: 52px; }
 .pgc-lightbox .p { left: 12px; top: 50%; transform: translateY(-50%); }

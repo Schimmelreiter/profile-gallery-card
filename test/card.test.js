@@ -70,3 +70,15 @@ assert.throws(() => card.setConfig({}), /source/);
 assert.throws(() => card.setConfig({ source: { entity: 'x' }, mode: 'wall' }), /mode/);
 assert.ok(window.customCards.some((c) => c.type === 'profile-gallery-card'));
 console.log('all card tests passed');
+// videos: counted, lightbox plays them after the pictures
+const vc = document.createElement('profile-gallery-card');
+document.body.appendChild(vc);
+vc.setConfig({ source: { entity: 'sensor.sc', attribute: 'persons' }, preset: 'swinger_companion', mode: 'browse' });
+vc.hass = { states: { 'sensor.sc': { state: '1', attributes: { persons: [{ id: 'p1', name: 'Kim', thumb: '/t', pics: ['/p1'], videos: ['/v1'] }] } } }, language: 'en' };
+const vr = vc.shadowRoot;
+assert.ok(vr.querySelector('[data-video]').textContent.includes('1'));
+vr.querySelector('[data-video]').click();
+assert.ok(document.querySelector('.pgc-lightbox video').getAttribute('src') === '/v1');
+assert.strictEqual(document.querySelector('.pgc-lightbox .c').textContent, '3/3 · Kim');
+document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+console.log('video tests passed');
