@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.4.1';
+const PGC_VERSION = '0.4.2';
 const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
 const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
@@ -289,7 +289,7 @@ class ProfileGalleryCard extends HTMLElement {
     const tools = (c.search ? `<input class="search" type="search" placeholder="${esc(c.search_placeholder || '🔍')}" value="${esc(this._q)}">` : '');
     let body;
     if (!items.length) body = `<div class="empty">${esc(this._error || c.empty_text || (q ? '–' : 'No entries'))}</div>`;
-    else if (c.mode === 'grid') body = `<div class="grid${c.image_height ? ' fixedh' : ''}" style="--cols:${Number(c.columns) || 3}">${this._ctrlInGrid() ? '<div class="tile ctile"></div>' : ''}${items.map((it, i) => this._tile(it, i, lang)).join('')}</div>`;
+    else if (c.mode === 'grid') body = `<div class="grid${c.image_height ? ' fixedh' : ''} fit-${c.image_fit || (c.image_height ? 'contain' : 'cover')}" style="--cols:${Number(c.columns) || 3}">${this._ctrlInGrid() ? '<div class="tile ctile"></div>' : ''}${items.map((it, i) => this._tile(it, i, lang)).join('')}</div>`;
     else if (c.mode === 'browse') body = this._browse(items, lang);
     else body = `<div class="list">${items.map((it, i) => this._row(it, i, lang)).join('')}</div>`;
     const keepFocus = this.shadowRoot.activeElement && this.shadowRoot.activeElement.classList.contains('search');
@@ -620,6 +620,8 @@ a.title:hover { text-decoration: underline; }
 .big { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; cursor: pointer; }
 .big.ph { display: flex; cursor: default; }
 .fixedh .big { aspect-ratio: auto; height: var(--img-h); }
+.fit-contain .big { object-fit: contain; background: #000; }
+.fit-cover .big { object-fit: cover; }
 .n.on { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: #fff; padding: 1px 6px; border-radius: 8px; }
 .browse { touch-action: pan-y; }
 .stage { position: relative; background: #000; }

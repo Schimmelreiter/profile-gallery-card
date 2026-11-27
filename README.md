@@ -28,7 +28,8 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 | `search` | search field above the entries |
 | `jump` | jump list in `browse` mode (default `true`) |
 | `columns` | columns in `grid` mode (default 3, on phones 2) |
-| `image_height` | picture height in `browse` mode in px (default 280) |
+| `image_height` | picture height in px: in `browse` mode (default 280) and, if set, for the tiles in `grid` mode |
+| `image_fit` | `contain` (whole picture, default with `image_height`) or `cover` (fill the tile, cut off) |
 | `filter` | only entries whose fields have these values: `{ path: value }` or `{ path: [value1, value2] }` |
 | `sort` | field or path to sort by, or `{ by: …, desc: true }` |
 | `limit` | at most this many entries |
