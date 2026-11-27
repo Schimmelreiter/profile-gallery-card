@@ -131,7 +131,7 @@ console.log('video tests passed');
   await new Promise((r) => setTimeout(r, 0));
   const nr = nc.shadowRoot;
   assert.ok(nr.querySelector('.html h3').textContent === 'Ana, 46');
-  assert.ok(nr.querySelector('.badge').textContent.startsWith('⚠️ 5/6'));
+  assert.ok(nr.querySelector('.notice').textContent.startsWith('⚠️ 5/6 · fehlt: AV'));
   assert.ok(nr.querySelector('.act.on') && !nr.querySelector('.adate'));  // date only when visited
   assert.strictEqual(nr.querySelectorAll('.crow').length, 2);
   assert.ok(nr.querySelector('.clock.on'));
@@ -200,4 +200,20 @@ console.log('video tests passed');
   assert.ok(css.includes('.tabu {') && css.includes('.x9 {'));
   assert.ok(sc.shadowRoot.querySelector('.html .tabu'));
   console.log('styles tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });
+// notice at the top of the tile
+(async () => {
+  const nc = document.createElement('profile-gallery-card');
+  document.body.appendChild(nc);
+  nc.setConfig({ source: { entity: 'sensor.k2', attribute: 'l' }, preset: 'nutten_scan_karten', mode: 'grid' });
+  nc.hass = { states: { 'sensor.k2': { state: '1', attributes: { l: [
+    { uid: 'u', name: 'N', bilder: ['/a'], exakt: false, treffer: '10 von 20 Kriterien', fehlt: 'Haarfarbe', tabu: '' },
+    { uid: 'v', name: 'M', bilder: ['/b'], exakt: true, treffer: '20 von 20' }] } } }, language: 'de' };
+  await new Promise((r) => setTimeout(r, 0));
+  const ns = nc.shadowRoot.querySelectorAll('.notice');
+  assert.strictEqual(ns.length, 1);
+  assert.strictEqual(ns[0].innerHTML, '⚠️ <b>10 von 20 Kriterien</b> · fehlt: Haarfarbe');
+  assert.strictEqual(ns[0].parentElement.firstElementChild, ns[0]);
+  assert.strictEqual(nc.shadowRoot.querySelectorAll('.badge').length, 0);
+  console.log('notice tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

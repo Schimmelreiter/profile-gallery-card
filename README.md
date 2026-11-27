@@ -58,7 +58,7 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 
 ### Fields
 
-Each entry is mapped to this format (version 1): `title`, `subtitle`, `image`, `images`, `videos`, `url`, `text`, `badges`, `lines`, `date`, `html`, `id`. `html` (trusted HTML from your own integration) replaces title and subtitle. A badge can be conditional: `{ text, when, is }`. Videos are played in the full-screen view after the pictures.
+Each entry is mapped to this format (version 1): `title`, `subtitle`, `image`, `images`, `videos`, `url`, `text`, `badges`, `lines`, `notice`, `date`, `html`, `id`. `html` (trusted HTML from your own integration) replaces title and subtitle. A badge can be conditional: `{ text, when, is }`. `notice` is a hint line at the top of the entry, above the picture (same condition form, `**bold**` allowed). Videos are played in the full-screen view after the pictures.
 
 A field is a **path** (`name`, `last_meet.club`, `profiles.0.url`, `phones.*.value` for all values of a list) or a **format** with paths in braces: `"{organization} · {city}"`. Parts between ` · ` that are empty disappear. `badges` and `lines` take a list.
 

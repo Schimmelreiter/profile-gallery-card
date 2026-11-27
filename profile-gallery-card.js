@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.4.3';
+const PGC_VERSION = '0.4.4';
 const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
 const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
@@ -73,7 +73,7 @@ const PRESETS = {
   // entries of sensor.nutten_scan_auswahl (karten) / sensor.nutten_scan_besuchte_models (models), with join: profil
   nutten_scan_karten: {
     id: 'uid', title: 'name', image: 'bild', images: 'bilder', url: 'url', html: 'karte_html', subtitle: '{haus} · {ort} · {seite}',
-    badges: [{ text: '⚠️ {treffer} · fehlt: {fehlt} · Tabu: {tabu}', when: 'exakt', is: false }],
+    notice: { text: '⚠️ **{treffer}** · fehlt: {fehlt} · Tabu: {tabu}', when: 'exakt', is: false },
   },
   google_contacts: {
     title: 'name', image: 'image', url: 'url', subtitle: '{organization} · {city}',
@@ -110,6 +110,9 @@ function normalize(raw, fields, idx) {
   // a badge may be { text, when, is }: shown only when the field "when" has the value "is"
   const bspec = [].concat(fields.badges || []).map((b) => (isObj(b) ? (String(getPath(raw, b.when)) === String(b.is) ? b.text : null) : b)).filter((b) => b != null);
   const badges = [].concat(field(raw, bspec) || []).flat().map(asText).filter(Boolean);
+  // notice: a hint line at the top of the entry (same { text, when, is } condition as a badge)
+  const nspec = [].concat(fields.notice || []).map((b) => (isObj(b) ? (String(getPath(raw, b.when)) === String(b.is) ? b.text : null) : b)).filter((b) => b != null);
+  const notice = [].concat(field(raw, nspec) || []).flat().map(asText).filter(Boolean).join(' · ');
   const lines = [].concat(field(raw, fields.lines) || []).map(asText).filter(Boolean);
   return {
     v: ITEM_FORMAT,
@@ -119,7 +122,7 @@ function normalize(raw, fields, idx) {
     image, images, videos,
     url: asText(field(raw, fields.url)),
     text: asText(field(raw, fields.text)),
-    badges, lines,
+    badges, lines, notice,
     date: asText(field(raw, fields.date)),
     html: asText(field(raw, fields.html)),
     raw,
@@ -293,7 +296,7 @@ class ProfileGalleryCard extends HTMLElement {
   _render() {
     if (!this._config || !this._hass) return;
     const all = this._items();
-    const sig = JSON.stringify([this._favs, all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.text, i.date, i.lines, i.url, i.html, this._actState(i)]), this._idx, this._img, this._q, this._config]);
+    const sig = JSON.stringify([this._favs, all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.notice, i.text, i.date, i.lines, i.url, i.html, this._actState(i)]), this._idx, this._img, this._q, this._config]);
     if (this._dlg) this._dialogUpdate(all);
     if (sig === this._sig) return;
     this._sig = sig;
@@ -328,6 +331,8 @@ class ProfileGalleryCard extends HTMLElement {
     if (keepFocus) { const s = this.shadowRoot.querySelector('.search'); if (s) { s.focus(); s.setSelectionRange(pos, pos); } }
   }
 
+  // notice text: escaped, **bold** allowed
+  _notice(it) { return it.notice ? `<div class="notice">${esc(it.notice).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</div>` : ''; }
   _badges(it) { return it.badges.length ? `<div class="badges">${it.badges.map((b) => `<span class="badge">${esc(b)}</span>`).join('')}</div>` : ''; }
   _meta(it, lang) {
     const date = it.date ? `<span class="date">${esc(fmtDate(it.date, lang))}</span>` : '';
@@ -376,7 +381,7 @@ class ProfileGalleryCard extends HTMLElement {
     return n > 1 || v ? `<span class="${cls}" data-open="${i}">${n > 1 ? n + ' 📷' : ''}${n > 1 && v ? ' ' : ''}${v ? v + ' 🎞' : ''}</span>` : '';
   }
   _row(it, i, lang) {
-    return `<div class="row">${this._thumb(it, i, 'av')}<div class="info">${this._head(it, lang)}${this._badges(it)}` +
+    return `<div class="row">${this._thumb(it, i, 'av')}<div class="info">${this._notice(it)}${this._head(it, lang)}${this._badges(it)}` +
       `${it.text && this._config.show_text !== false ? `<div class="text clamp">${esc(it.text)}</div>` : ''}${this._actions(it, i)}</div>` +
       `${this._count(it, i, 'n')}</div>`;
   }
@@ -386,10 +391,10 @@ class ProfileGalleryCard extends HTMLElement {
     if (n > 1 || it.videos.length) {
       const nav = n > 1 ? `<button class="tb prev" data-ti="${i}:-1" aria-label="previous picture">‹</button><button class="tb next" data-ti="${i}:1" aria-label="next picture">›</button><span class="tc">${k + 1} / ${n}</span>` : '';
       const vids = it.videos.length ? `<span class="n on tv" data-video="${i}">${it.videos.length} 🎞</span>` : '';
-      return `<div class="tile"><div class="tshow" data-tile="${i}"><img class="big" loading="lazy" src="${esc(it.images[k] || it.image)}" data-open="${i}" alt="">${nav}${vids}${this._star(it, i, it.images[k])}</div>` +
+      return `<div class="tile">${this._notice(it)}<div class="tshow" data-tile="${i}"><img class="big" loading="lazy" src="${esc(it.images[k] || it.image)}" data-open="${i}" alt="">${nav}${vids}${this._star(it, i, it.images[k])}</div>` +
         `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
     }
-    return `<div class="tile">${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}${it.image ? this._star(it, i, it.image) : ''}` +
+    return `<div class="tile">${this._notice(it)}${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}${it.image ? this._star(it, i, it.image) : ''}` +
       `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
   }
   _browse(items, lang) {
@@ -402,7 +407,7 @@ class ProfileGalleryCard extends HTMLElement {
     const jump = this._config.jump !== false && items.length > 2
       ? `<select class="jump">${items.map((x, j) => `<option value="${j}"${j === i ? ' selected' : ''}>${esc(x.title)}</option>`).join('')}</select>` : '';
     const vids = it.videos.length ? `<span class="n on" data-video="${i}">${it.videos.length} 🎞</span>` : '';
-    return `<div class="browse"><div class="stage">${pic}${star}${dots}${vids}</div>` +
+    return `<div class="browse">${this._notice(it)}<div class="stage">${pic}${star}${dots}${vids}</div>` +
       `<div class="info binfo">${this._head(it, lang)}${this._badges(it)}${it.text ? `<div class="text">${esc(it.text)}</div>` : ''}${this._actions(it, i)}</div>` +
       `<div class="nav"><button class="nb" data-go="-1" ${items.length < 2 ? 'disabled' : ''} aria-label="previous">‹</button>` +
       `<span class="ctr">${i + 1}/${items.length}</span>${jump}<button class="nb" data-go="1" ${items.length < 2 ? 'disabled' : ''} aria-label="next">›</button></div></div>`;
@@ -632,6 +637,8 @@ a.title:hover { text-decoration: underline; }
 .sub, .line { font-size: .9em; color: var(--secondary-text-color); }
 .text { font-size: .9em; margin-top: 6px; white-space: pre-wrap; }
 .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.notice { font-size: 14px; line-height: 1.4; padding: 6px 10px; overflow-wrap: anywhere; }
+.info .notice { padding: 0 0 4px; }
 .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .badge { font-size: .75em; padding: 1px 8px; border-radius: 10px; background: var(--primary-color); color: var(--text-primary-color, #fff); opacity: .85; }
 .ph { display: flex; align-items: center; justify-content: center; background: var(--secondary-background-color); color: var(--secondary-text-color); font-size: 2em; }
