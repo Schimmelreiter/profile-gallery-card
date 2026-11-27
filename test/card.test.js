@@ -108,3 +108,47 @@ console.log('video tests passed');
   assert.ok(fc2.shadowRoot.querySelector('.av').getAttribute('src').startsWith('/p2'));
   console.log('favourite tests passed');
 })();
+// 0.4.0: join, html, actions with date, controls, detail window with note
+(async () => {
+  const calls = [];
+  const st2 = {
+    'sensor.auswahl': { state: '1', attributes: { karten: [{ uid: 'M1', profil: 'sensor.m1_profil', interessant: 'switch.m1_i', besucht: 'switch.m1_b', besucht_am: 'date.m1', exakt: false, treffer: '5/6', fehlt: 'AV' }],
+      filter_zeilen: [[{ entity: 'number.alter_max', name: 'Alter' }, { schloss: true, entity: 'switch.pflicht_alter' }], [{ leer: true }, { entity: 'select.figur' }]] } },
+    'sensor.m1_profil': { state: 'gelistet', attributes: { name: 'Ana', bilder: ['/b1', '/b2'], karte_html: '<h3>Ana, 46</h3>', kopf_html: '<b>Kopf</b>', details_html: '<table><tr><th>Alter</th><td>46</td></tr></table>', kommentar: 'alt' } },
+    'switch.m1_i': { state: 'on', attributes: {} }, 'switch.m1_b': { state: 'off', attributes: {} }, 'date.m1': { state: '2026-05-13', attributes: {} },
+    'switch.pflicht_alter': { state: 'on', attributes: {} },
+  };
+  const hass2 = { states: st2, language: 'de', callService: async (d, s, data) => { calls.push([d, s, data]); } };
+  const nc = document.createElement('profile-gallery-card');
+  document.body.appendChild(nc);
+  nc.setConfig({ source: { entity: 'sensor.auswahl', attribute: 'karten' }, join: 'profil', preset: 'nutten_scan_karten', mode: 'grid',
+    controls_from: { entity: 'sensor.auswahl', attribute: 'filter_zeilen' },
+    actions: [{ field: 'interessant', icon: 'mdi:star', name: 'Interessant' }, { field: 'besucht', icon: 'mdi:check' }],
+    date: { field: 'besucht_am', when: 'besucht' },
+    details: { head: 'kopf_html', body: 'details_html' },
+    note: { field: 'kommentar', name: 'Kommentar', service: 'nutten_scan.set_comment', data: { uid: '{uid}', kommentar: '{value}' } } });
+  nc.hass = hass2;
+  await new Promise((r) => setTimeout(r, 0));
+  const nr = nc.shadowRoot;
+  assert.ok(nr.querySelector('.html h3').textContent === 'Ana, 46');
+  assert.ok(nr.querySelector('.badge').textContent.startsWith('⚠️ 5/6'));
+  assert.ok(nr.querySelector('.act.on') && !nr.querySelector('.adate'));  // date only when visited
+  assert.strictEqual(nr.querySelectorAll('.crow').length, 2);
+  assert.ok(nr.querySelector('.clock.on'));
+  nr.querySelector('[data-act="0:1"]').click();
+  assert.deepStrictEqual(calls.pop(), ['homeassistant', 'toggle', { entity_id: 'switch.m1_b' }]);
+  st2['switch.m1_b'] = { state: 'on', attributes: {} };
+  nc.hass = Object.assign({}, hass2, { states: Object.assign({}, st2) });
+  assert.strictEqual(nr.querySelector('.adate').value, '2026-05-13');
+  nr.querySelector('[data-det]').click();
+  const dlg = document.querySelector('.pgc-dialog');
+  assert.ok(dlg.querySelector('.dhtml b').textContent === 'Kopf' && dlg.querySelector('table'));
+  assert.strictEqual(dlg.querySelectorAll('.strip img').length, 2);
+  assert.strictEqual(dlg.querySelector('textarea').value, 'alt');
+  dlg.querySelector('textarea').value = 'neu';
+  dlg.querySelector('.save').click();
+  assert.deepStrictEqual(calls.pop(), ['nutten_scan', 'set_comment', { uid: 'M1', kommentar: 'neu' }]);
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+  assert.ok(!document.querySelector('.pgc-dialog'));
+  console.log('0.4.0 tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });

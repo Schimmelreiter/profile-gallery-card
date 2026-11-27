@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.3.0';
+const PGC_VERSION = '0.4.0';
 const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
 const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
@@ -70,6 +70,11 @@ const PRESETS = {
     title: 'name', image: 'bild', images: 'bilder', url: 'url', subtitle: '{haus} · {seite}',
     date: 'besucht_am', text: 'kommentar', badges: ['status', 'alter'],
   },
+  // entries of sensor.nutten_scan_auswahl (karten) / sensor.nutten_scan_besuchte_models (models), with join: profil
+  nutten_scan_karten: {
+    id: 'uid', title: 'name', image: 'bild', images: 'bilder', url: 'url', html: 'karte_html', subtitle: '{haus} · {ort} · {seite}',
+    badges: [{ text: '⚠️ {treffer} · fehlt: {fehlt} · Tabu: {tabu}', when: 'exakt', is: false }],
+  },
   google_contacts: {
     title: 'name', image: 'image', url: 'url', subtitle: '{organization} · {city}',
     lines: ['phones.*.value', 'emails.*.value'], badges: ['groups.*'], date: 'birthday', text: 'note',
@@ -85,7 +90,9 @@ function normalize(raw, fields, idx) {
   if (image && !images.includes(image)) images = [image, ...images];
   const videosV = field(raw, fields.videos);
   const videos = (Array.isArray(videosV) ? videosV : videosV ? [videosV] : []).map((x) => (isObj(x) ? x.url || x.src || '' : String(x || ''))).filter(Boolean);
-  const badges = [].concat(field(raw, fields.badges) || []).flat().map(asText).filter(Boolean);
+  // a badge may be { text, when, is }: shown only when the field "when" has the value "is"
+  const bspec = [].concat(fields.badges || []).map((b) => (isObj(b) ? (String(getPath(raw, b.when)) === String(b.is) ? b.text : null) : b)).filter((b) => b != null);
+  const badges = [].concat(field(raw, bspec) || []).flat().map(asText).filter(Boolean);
   const lines = [].concat(field(raw, fields.lines) || []).map(asText).filter(Boolean);
   return {
     v: ITEM_FORMAT,
@@ -97,6 +104,7 @@ function normalize(raw, fields, idx) {
     text: asText(field(raw, fields.text)),
     badges, lines,
     date: asText(field(raw, fields.date)),
+    html: asText(field(raw, fields.html)),
     raw,
   };
 }
@@ -157,7 +165,7 @@ class ProfileGalleryCard extends HTMLElement {
   }
 
   connectedCallback() { if (this._hass && this._config) { this._sig = ''; this._render(); } }
-  disconnectedCallback() { this._unsub(); }
+  disconnectedCallback() { this._unsub(); this._closeDialog(); }
   _unsub() { if (this._tplUnsub) { try { this._tplUnsub(); } catch (e) { /* gone */ } this._tplUnsub = null; } }
 
   async _subscribeTemplate() {
@@ -209,6 +217,19 @@ class ProfileGalleryCard extends HTMLElement {
     } catch (e) { /* stays for this page view */ }
   }
   _rawItems() {
+    const j = this._config.join, h = this._hass;
+    const raw = this._rawItems0();
+    // join: a field holds an entity id; its attributes complete the entry (fields of the entry win)
+    const empty = (v) => v == null || v === '' || (Array.isArray(v) && !v.length);
+    return j ? raw.map((r) => {
+      const st = r && h.states[r[j]];
+      if (!st) return r;
+      const out = Object.assign({}, st.attributes, { state: st.state });
+      for (const [k, v] of Object.entries(r)) if (!empty(v) || !(k in out)) out[k] = v;
+      return out;
+    }) : raw;
+  }
+  _rawItems0() {
     const s = this._config.source, h = this._hass;
     if (s.template) return this._tplItems || [];
     if (s.calendar) return this._calItems || [];
@@ -254,7 +275,8 @@ class ProfileGalleryCard extends HTMLElement {
   _render() {
     if (!this._config || !this._hass) return;
     const all = this._items();
-    const sig = JSON.stringify([this._favs, all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.text, i.date, i.lines, i.url]), this._idx, this._img, this._q, this._config]);
+    const sig = JSON.stringify([this._favs, all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.text, i.date, i.lines, i.url, i.html, this._actState(i)]), this._idx, this._img, this._q, this._config]);
+    if (this._dlg) this._dialogUpdate(all);
     if (sig === this._sig) return;
     this._sig = sig;
     const lang = (this._hass.locale && this._hass.locale.language) || this._hass.language || 'en';
@@ -272,7 +294,17 @@ class ProfileGalleryCard extends HTMLElement {
     else body = `<div class="list">${items.map((it, i) => this._row(it, i, lang)).join('')}</div>`;
     const keepFocus = this.shadowRoot.activeElement && this.shadowRoot.activeElement.classList.contains('search');
     const pos = keepFocus ? this.shadowRoot.activeElement.selectionStart : 0;
-    this.shadowRoot.innerHTML = `<style>${CSS}</style><ha-card style="--img-h:${Number(c.image_height) || 280}px">${head}${tools ? `<div class="tools">${tools}</div>` : ''}${body}</ha-card>`;
+    if (!this._content) {
+      this.shadowRoot.innerHTML = `<style>${CSS}</style><ha-card><div class="ctrl"></div><div class="content"></div></ha-card>`;
+      this._content = this.shadowRoot.querySelector('.content');
+      this._ctrlEl = this.shadowRoot.querySelector('.ctrl');
+    }
+    this.shadowRoot.querySelector('ha-card').style.setProperty('--img-h', `${Number(c.image_height) || 280}px`);
+    this._content.innerHTML = `${tools ? `<div class="tools">${tools}</div>` : ''}${body}`;
+    this._ctrlEl.innerHTML = '';
+    if (head) this._ctrlEl.insertAdjacentHTML('afterbegin', head);
+    this._controls();
+    if (this._ctrlBox) this._ctrlEl.appendChild(this._ctrlBox);
     this._wire();
     if (keepFocus) { const s = this.shadowRoot.querySelector('.search'); if (s) { s.focus(); s.setSelectionRange(pos, pos); } }
   }
@@ -282,6 +314,30 @@ class ProfileGalleryCard extends HTMLElement {
     const date = it.date ? `<span class="date">${esc(fmtDate(it.date, lang))}</span>` : '';
     return `${it.subtitle || date ? `<div class="sub">${esc(it.subtitle)}${it.subtitle && date ? ' · ' : ''}${date}</div>` : ''}` +
       it.lines.map((l) => `<div class="line">${esc(l)}</div>`).join('');
+  }
+  _head(it, lang) { return it.html ? `<div class="html">${it.html}</div>` : this._title(it) + this._meta(it, lang); }
+  _actState(it) {
+    const h = this._hass, ids = [...(this._config.actions || []).map((a) => it.raw[a.field]), (this._config.date || {}).field && it.raw[this._config.date.field]];
+    return ids.map((e) => (e && h.states[e] ? h.states[e].state : ''));
+  }
+  _actions(it, i) {
+    const c = this._config, h = this._hass;
+    const btn = (c.actions || []).map((a, k) => {
+      const e = it.raw[a.field], st = e && h.states[e];
+      if (!st) return '';
+      const on = st.state === 'on';
+      return `<button class="act${on ? ' on' : ''}" data-act="${i}:${k}" title="${esc(a.name || st.attributes.friendly_name || '')}"><ha-icon icon="${esc((on && a.icon_on) || a.icon || 'mdi:checkbox-blank-circle-outline')}"></ha-icon>${a.name ? `<span>${esc(a.name)}</span>` : ''}</button>`;
+    }).join('');
+    let date = '';
+    if (c.date && it.raw[c.date.field] && h.states[it.raw[c.date.field]]) {
+      const when = c.date.when ? it.raw[c.date.when] : null;
+      if (!when || (h.states[when] && h.states[when].state === 'on')) {
+        const v = h.states[it.raw[c.date.field]].state;
+        date = `<input class="adate" type="date" data-date="${i}" value="${/^\d{4}-\d\d-\d\d$/.test(v) ? v : ''}">`;
+      }
+    }
+    const det = c.details ? `<button class="act" data-det="${i}" title="Details"><ha-icon icon="mdi:information-outline"></ha-icon></button>` : '';
+    return btn || date || det ? `<div class="acts">${btn}${date}${det}</div>` : '';
   }
   _title(it) { return it.url ? `<a class="title" href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.title)}</a>` : `<span class="title">${esc(it.title)}</span>`; }
   _thumb(it, i, cls) {
@@ -293,13 +349,13 @@ class ProfileGalleryCard extends HTMLElement {
     return n > 1 || v ? `<span class="${cls}" data-open="${i}">${n > 1 ? n + ' 📷' : ''}${n > 1 && v ? ' ' : ''}${v ? v + ' 🎞' : ''}</span>` : '';
   }
   _row(it, i, lang) {
-    return `<div class="row">${this._thumb(it, i, 'av')}<div class="info">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}` +
-      `${it.text && this._config.show_text !== false ? `<div class="text clamp">${esc(it.text)}</div>` : ''}</div>` +
+    return `<div class="row">${this._thumb(it, i, 'av')}<div class="info">${this._head(it, lang)}${this._badges(it)}` +
+      `${it.text && this._config.show_text !== false ? `<div class="text clamp">${esc(it.text)}</div>` : ''}${this._actions(it, i)}</div>` +
       `${this._count(it, i, 'n')}</div>`;
   }
   _tile(it, i, lang) {
     return `<div class="tile">${this._thumb(it, i, 'big')}${this._count(it, i, 'n on')}` +
-      `<div class="info">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}</div></div>`;
+      `<div class="info">${this._head(it, lang)}${this._badges(it)}${this._actions(it, i)}</div></div>`;
   }
   _browse(items, lang) {
     const i = this._idx, it = items[i], k = this._img[it.id] || 0, n = it.images.length;
@@ -312,7 +368,7 @@ class ProfileGalleryCard extends HTMLElement {
       ? `<select class="jump">${items.map((x, j) => `<option value="${j}"${j === i ? ' selected' : ''}>${esc(x.title)}</option>`).join('')}</select>` : '';
     const vids = it.videos.length ? `<span class="n on" data-video="${i}">${it.videos.length} 🎞</span>` : '';
     return `<div class="browse"><div class="stage">${pic}${star}${dots}${vids}</div>` +
-      `<div class="info binfo">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}${it.text ? `<div class="text">${esc(it.text)}</div>` : ''}</div>` +
+      `<div class="info binfo">${this._head(it, lang)}${this._badges(it)}${it.text ? `<div class="text">${esc(it.text)}</div>` : ''}${this._actions(it, i)}</div>` +
       `<div class="nav"><button class="nb" data-go="-1" ${items.length < 2 ? 'disabled' : ''} aria-label="previous">‹</button>` +
       `<span class="ctr">${i + 1}/${items.length}</span>${jump}<button class="nb" data-go="1" ${items.length < 2 ? 'disabled' : ''} aria-label="next">›</button></div></div>`;
   }
@@ -339,8 +395,122 @@ class ProfileGalleryCard extends HTMLElement {
     r.querySelectorAll('[data-video]').forEach((el) => el.addEventListener('click', (e) => {
       e.stopPropagation(); const it = this._shown[+el.dataset.video]; if (it) this._lightbox(it, it.images.length);
     }));
+    this._wireActs(r, this._shown);
+    r.querySelectorAll('[data-det]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); this._openDialog(this._shown[+b.dataset.det]); }));
     const stage = r.querySelector('.browse');
     if (stage) swipe(stage, (d) => this._go(d));
+  }
+  _wireActs(r, list) {
+    r.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const [i, k] = b.dataset.act.split(':').map(Number), it = list[i], a = (this._config.actions || [])[k];
+      if (it && a && it.raw[a.field]) this._hass.callService('homeassistant', 'toggle', { entity_id: it.raw[a.field] });
+    }));
+    r.querySelectorAll('[data-date]').forEach((d) => d.addEventListener('change', (e) => {
+      e.stopPropagation(); const it = list[+d.dataset.date];
+      if (it && d.value) this._hass.callService('date', 'set_value', { entity_id: it.raw[this._config.date.field], date: d.value });
+    }));
+  }
+
+  // ---------- controls above the gallery (any entities; rows of cells) ----------
+  _controls() {
+    const c = this._config, h = this._hass;
+    let rows = c.controls;
+    if (!rows && c.controls_from) { const st = h.states[c.controls_from.entity]; rows = st && getPath(st.attributes, c.controls_from.attribute || 'controls'); }
+    if (!Array.isArray(rows) || !rows.length) { this._ctrlBox = null; return; }
+    rows = rows.map((r) => (Array.isArray(r) ? r : [r]));
+    const key = JSON.stringify(rows);
+    if (key !== this._ctrlKey) {
+      this._ctrlKey = key;
+      const box = document.createElement('div');
+      box.className = 'controls';
+      this._ctrlRows = []; this._locks = [];
+      const helpers = window.loadCardHelpers ? window.loadCardHelpers() : Promise.resolve(null);
+      for (const row of rows) {
+        const line = document.createElement('div');
+        line.className = 'crow';
+        for (const cell0 of row) {
+          const cell = typeof cell0 === 'string' ? { entity: cell0 } : cell0 || {};
+          if (cell.gap || cell.leer) { line.appendChild(Object.assign(document.createElement('div'), { className: 'cgap' })); continue; }
+          if (cell.toggle || cell.schloss) {
+            const ent = cell.toggle || cell.entity;
+            const b = Object.assign(document.createElement('button'), { className: 'clock', title: cell.name || 'Pflicht' });
+            b.innerHTML = '<ha-icon></ha-icon>';
+            b.addEventListener('click', () => this._hass.callService('homeassistant', 'toggle', { entity_id: ent }));
+            this._locks.push([ent, b]);
+            line.appendChild(b);
+            continue;
+          }
+          const slot = Object.assign(document.createElement('div'), { className: 'ccell' });
+          line.appendChild(slot);
+          helpers.then((hp) => {
+            const conf = { entity: cell.entity }; if (cell.name) conf.name = cell.name;
+            const el = hp ? hp.createRowElement(conf) : Object.assign(document.createElement('div'), { textContent: cell.name || cell.entity });
+            el.hass = this._hass; this._ctrlRows.push(el); slot.appendChild(el);
+          });
+        }
+        box.appendChild(line);
+      }
+      this._ctrlBox = box;
+    }
+    for (const r of this._ctrlRows || []) r.hass = h;
+    for (const [ent, b] of this._locks || []) {
+      const st = h.states[ent], on = !!st && st.state === 'on';
+      b.classList.toggle('on', on);
+      b.firstChild.setAttribute('icon', (st && st.attributes.icon) || (on ? 'mdi:lock' : 'mdi:lock-open-variant-outline'));
+    }
+  }
+
+  // ---------- detail window: head and body as HTML, pictures, actions, own note ----------
+  _openDialog(it) {
+    if (!it) return;
+    this._closeDialog();
+    const box = document.createElement('div');
+    box.className = 'pgc-dialog';
+    box.innerHTML = `<style>${DLG_CSS}</style><div class="dlg"><div class="dh"><button class="x" aria-label="close">×</button><span class="dt"></span></div><div class="db"></div></div>`;
+    box.addEventListener('click', (e) => { if (e.target === box) this._closeDialog(); });
+    box.querySelector('.x').addEventListener('click', () => this._closeDialog());
+    this._dlgKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.pgc-lightbox')) this._closeDialog(); };
+    document.addEventListener('keydown', this._dlgKey);
+    document.body.appendChild(box);
+    this._dlg = { id: it.id, box, sig: '' };
+    this._dialogUpdate(this._items());
+  }
+  _closeDialog() {
+    if (!this._dlg) return;
+    this._dlg.box.remove();
+    document.removeEventListener('keydown', this._dlgKey);
+    this._dlg = null;
+  }
+  _dialogUpdate(all) {
+    const d = this._dlg, it = all.find((x) => x.id === d.id);
+    if (!it) return;
+    const c = this._config, det = isObj(c.details) ? c.details : {};
+    const headH = det.head ? asText(field(it.raw, det.head)) : '', bodyH = det.body ? asText(field(it.raw, det.body)) : '';
+    const sig = JSON.stringify([headH, bodyH, it.images, this._actState(it), it.raw[(c.note || {}).field]]);
+    if (sig === d.sig) return;
+    d.sig = sig;
+    d.box.querySelector('.dt').textContent = it.title;
+    const db = d.box.querySelector('.db');
+    const area = db.querySelector('textarea'), typed = area && area.value !== (d.stored || '') ? area.value : null;
+    const imgs = it.images.map((u, j) => `<img src="${esc(u)}" data-li="${j}" alt="">`).join('');
+    const noteV = c.note ? asText(getPath(it.raw, c.note.field)) : '';
+    db.innerHTML = `${headH ? `<div class="dhtml">${headH}</div>` : ''}${imgs ? `<div class="strip">${imgs}</div>` : ''}${bodyH ? `<div class="dhtml">${bodyH}</div>` : ''}` +
+      this._actions(it, 0).replace(/<button class="act" data-det="0"[\s\S]*?<\/button>/, '') +
+      (c.note ? `<div class="note"><h4>${esc(c.note.name || 'Notiz')}</h4><textarea rows="4"></textarea><button class="save">Speichern</button><span class="saved"></span></div>` : '');
+    db.querySelectorAll('[data-li]').forEach((im) => im.addEventListener('click', () => this._lightbox(it, +im.dataset.li)));
+    this._wireActs(db, [it]);
+    if (c.note) {
+      const ta = db.querySelector('textarea');
+      d.stored = noteV;
+      ta.value = typed != null ? typed : noteV;
+      db.querySelector('.save').addEventListener('click', () => {
+        const data = {};
+        for (const [k, v] of Object.entries(c.note.data || {})) data[k] = typeof v === 'string' ? v.replace(/\{value\}/g, ta.value).replace(/\{([^}]+)\}/g, (_, p2) => asText(getPath(it.raw, p2))) : v;
+        const [dom, svc] = String(c.note.service || '').split('.');
+        this._hass.callService(dom, svc, data).then(() => { db.querySelector('.saved').textContent = '✓'; }).catch((e) => { db.querySelector('.saved').textContent = e.message || String(e); });
+      });
+    }
   }
 
   _lightbox(it, start) {
@@ -384,6 +554,17 @@ function swipe(el, cb) {
 
 const CSS = `
 ha-card { overflow: hidden; padding-bottom: 8px; }
+.ctrl .controls { padding: 0 8px 8px; }
+.crow { display: flex; align-items: center; gap: 4px; }
+.ccell { flex: 1; min-width: 0; }
+.cgap { width: 36px; flex: none; }
+.clock { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--secondary-text-color); cursor: pointer; }
+.clock.on { color: var(--primary-color); }
+.html h3 { margin: 0 0 4px; font-size: 1.1em; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.act { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); border-radius: 16px; padding: 3px 10px; cursor: pointer; font: inherit; }
+.act.on { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: transparent; }
+.adate { background: transparent; color: var(--primary-text-color); border: 1px solid var(--divider-color); border-radius: 6px; padding: 2px 6px; font: inherit; }
 .head { display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px; font-size: 1.25em; font-weight: 500; }
 .count { font-size: .7em; padding: 1px 8px; border-radius: 10px; background: var(--secondary-background-color); color: var(--secondary-text-color); }
 .tools { padding: 0 16px 8px; }
@@ -428,6 +609,22 @@ a.title:hover { text-decoration: underline; }
 .nb:disabled { opacity: .3; cursor: default; }
 .ctr { color: var(--secondary-text-color); min-width: 48px; text-align: center; }
 .jump { flex: 1; min-width: 0; padding: 6px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
+`;
+const DLG_CSS = `
+.pgc-dialog { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
+.dlg { background: var(--card-background-color, #1c1c1c); color: var(--primary-text-color, #e6e6e6); width: min(1100px, 96vw); max-height: 92vh; overflow: auto; border-radius: 12px; font-family: var(--paper-font-body1_-_font-family, system-ui, sans-serif); }
+.dh { position: sticky; top: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: inherit; border-bottom: 1px solid var(--divider-color, #333); font-size: 1.2em; }
+.dh .x { background: none; border: 0; color: inherit; font-size: 28px; cursor: pointer; }
+.db { padding: 12px 16px; }
+.strip { display: flex; gap: 6px; overflow-x: auto; margin: 8px 0; }
+.strip img { height: 220px; border-radius: 6px; cursor: zoom-in; }
+.dhtml table { border-collapse: collapse; } .dhtml th, .dhtml td { text-align: left; padding: 2px 10px 2px 0; vertical-align: top; }
+.note textarea { width: 100%; box-sizing: border-box; background: transparent; color: inherit; border: 1px solid var(--divider-color, #444); border-radius: 6px; padding: 6px; font: inherit; }
+.note .save { margin-top: 6px; padding: 4px 14px; border-radius: 14px; border: 1px solid var(--divider-color, #444); background: transparent; color: inherit; cursor: pointer; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.act { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--divider-color, #444); background: transparent; color: inherit; border-radius: 16px; padding: 3px 10px; cursor: pointer; font: inherit; }
+.act.on { background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff); border-color: transparent; }
+.adate { background: transparent; color: inherit; border: 1px solid var(--divider-color, #444); border-radius: 6px; padding: 2px 6px; font: inherit; }
 `;
 const LB_CSS = `
 .pgc-lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; touch-action: pan-y; }

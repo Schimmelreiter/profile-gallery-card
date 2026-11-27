@@ -33,6 +33,13 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 | `sort` | field or path to sort by, or `{ by: …, desc: true }` |
 | `limit` | at most this many entries |
 | `show_text` | show the text in `list` mode (default `true`) |
+| `join` | field holding an entity id; that entity's attributes complete the entry (non-empty fields of the entry win) |
+| `controls` | entities shown as controls above the gallery: list of rows; a cell is an entity id, `{ entity, name }`, `{ gap: true }` or `{ toggle: entity }` (round on/off button) |
+| `controls_from` | the same rows read from an attribute: `{ entity, attribute }` |
+| `actions` | buttons on each entry that toggle an entity named in a field: `[{ field, icon, icon_on, name }]` |
+| `date` | date input on each entry for a `date` entity named in a field: `{ field, when }` (`when`: only while that switch is on) |
+| `details` | ⓘ button opening a window with HTML from fields: `{ head, body }`, plus all pictures, actions and the note |
+| `note` | editable note in the detail window: `{ field, name, service, data }`; in `data`, `{value}` is the text and `{path}` a field of the entry |
 | `empty_text` | text when there are no entries |
 
 ### Sources
@@ -47,7 +54,7 @@ Then add the card from the card picker (*Profile Gallery Card*) and set it up in
 
 ### Fields
 
-Each entry is mapped to this format (version 1): `title`, `subtitle`, `image`, `images`, `videos`, `url`, `text`, `badges`, `lines`, `date`, `id`. Videos are played in the full-screen view after the pictures.
+Each entry is mapped to this format (version 1): `title`, `subtitle`, `image`, `images`, `videos`, `url`, `text`, `badges`, `lines`, `date`, `html`, `id`. `html` (trusted HTML from your own integration) replaces title and subtitle. A badge can be conditional: `{ text, when, is }`. Videos are played in the full-screen view after the pictures.
 
 A field is a **path** (`name`, `last_meet.club`, `profiles.0.url`, `phones.*.value` for all values of a list) or a **format** with paths in braces: `"{organization} · {city}"`. Parts between ` · ` that are empty disappear. `badges` and `lines` take a list.
 
