@@ -82,3 +82,29 @@ assert.ok(document.querySelector('.pgc-lightbox video').getAttribute('src') === 
 assert.strictEqual(document.querySelector('.pgc-lightbox .c').textContent, '3/3 · Kim');
 document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
 console.log('video tests passed');
+// favourite: stored per user, shown first afterwards
+(async () => {
+  const store = {};
+  const conn = { sendMessagePromise: async (m) => { if (m.type === 'frontend/get_user_data') return { value: store[m.key] }; store[m.key] = m.value; return null; } };
+  const fc = document.createElement('profile-gallery-card');
+  document.body.appendChild(fc);
+  fc.setConfig({ source: { entity: 'sensor.sc', attribute: 'persons' }, preset: 'swinger_companion', mode: 'browse' });
+  const st = { 'sensor.sc': { state: '1', attributes: { persons: [{ id: 'p1', name: 'Kim', thumb: '/t?s=1', pics: ['/p1?s=2', '/p2?s=3'] }] } } };
+  fc.hass = { states: st, language: 'en', connection: conn };
+  await new Promise((r) => setTimeout(r, 0));
+  const fr = fc.shadowRoot;
+  fr.querySelector('.dot:nth-child(3)').click();           // third picture
+  assert.ok(fr.querySelector('.hero').getAttribute('src').startsWith('/p2'));
+  fr.querySelector('[data-fav]').click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepStrictEqual(store['profile-gallery-card'], { favs: { 'swinger_companion:p1': '/p2' } });
+  assert.ok(fr.querySelector('.hero').getAttribute('src').startsWith('/p2') && fr.querySelector('.fav.on'));
+  // new page view: favourite first
+  const fc2 = document.createElement('profile-gallery-card');
+  document.body.appendChild(fc2);
+  fc2.setConfig({ source: { entity: 'sensor.sc', attribute: 'persons' }, preset: 'swinger_companion', mode: 'list' });
+  fc2.hass = { states: st, language: 'en', connection: conn };
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(fc2.shadowRoot.querySelector('.av').getAttribute('src').startsWith('/p2'));
+  console.log('favourite tests passed');
+})();

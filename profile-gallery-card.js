@@ -3,7 +3,9 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.2.0';
+const PGC_VERSION = '0.3.0';
+const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
+const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
 
 // ---------- helpers ----------
@@ -146,6 +148,7 @@ class ProfileGalleryCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    if (!this._favLoad && hass.connection) this._loadFavs();
     const s = this._config && this._config.source;
     if (!s) return;
     if (s.template && !this._tplUnsub && !this._tplPending) this._subscribeTemplate();
@@ -182,6 +185,29 @@ class ProfileGalleryCard extends HTMLElement {
     this._sig = ''; this._render();
   }
 
+  async _loadFavs() {
+    this._favLoad = true;
+    try {
+      const r = await this._hass.connection.sendMessagePromise({ type: 'frontend/get_user_data', key: FAV_KEY });
+      this._favs = (r && r.value && r.value.favs) || {};
+    } catch (e) { this._favs = this._favs || {}; }
+    this._sig = ''; this._render();
+  }
+  _favId(it) { return `${this._config.preset || 'none'}:${it.id}`; }
+  _isFav(it, url) { return !!url && (this._favs || {})[this._favId(it)] === imgBase(url); }
+  async _toggleFav(it, url) {
+    const favs = Object.assign({}, this._favs || {}), k = this._favId(it);
+    if (favs[k] === imgBase(url)) delete favs[k]; else favs[k] = imgBase(url);
+    this._favs = favs;
+    this._img[it.id] = 0;
+    this._sig = ''; this._render();
+    try {
+      const cur = await this._hass.connection.sendMessagePromise({ type: 'frontend/get_user_data', key: FAV_KEY });
+      const all = Object.assign({}, (cur && cur.value && cur.value.favs) || {});
+      if (favs[k]) all[k] = favs[k]; else delete all[k];
+      await this._hass.connection.sendMessagePromise({ type: 'frontend/set_user_data', key: FAV_KEY, value: { favs: all } });
+    } catch (e) { /* stays for this page view */ }
+  }
   _rawItems() {
     const s = this._config.source, h = this._hass;
     if (s.template) return this._tplItems || [];
@@ -206,6 +232,13 @@ class ProfileGalleryCard extends HTMLElement {
       return Array.isArray(want) ? want.map(String).includes(String(v)) : String(v) === String(want);
     }));
     let items = raw.map((r, i) => normalize(r, this._fields, i));
+    // favourite picture first
+    for (const it of items) {
+      const f = (this._favs || {})[this._favId(it)];
+      const j = f ? it.images.findIndex((u) => imgBase(u) === f) : -1;
+      if (j > 0) { const [u] = it.images.splice(j, 1); it.images.unshift(u); }
+      if (j >= 0) it.image = it.images[0];
+    }
     if (c.sort) {
       const by = isObj(c.sort) ? c.sort.by : c.sort, desc = isObj(c.sort) && c.sort.desc;
       const key = (it) => { const v = by in it ? it[by] : getPath(it.raw, by); return v == null ? '' : v; };
@@ -221,7 +254,7 @@ class ProfileGalleryCard extends HTMLElement {
   _render() {
     if (!this._config || !this._hass) return;
     const all = this._items();
-    const sig = JSON.stringify([all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.text, i.date, i.lines, i.url]), this._idx, this._img, this._q, this._config]);
+    const sig = JSON.stringify([this._favs, all.map((i) => [i.id, i.title, i.subtitle, i.images, i.videos, i.badges, i.text, i.date, i.lines, i.url]), this._idx, this._img, this._q, this._config]);
     if (sig === this._sig) return;
     this._sig = sig;
     const lang = (this._hass.locale && this._hass.locale.language) || this._hass.language || 'en';
@@ -271,12 +304,14 @@ class ProfileGalleryCard extends HTMLElement {
   _browse(items, lang) {
     const i = this._idx, it = items[i], k = this._img[it.id] || 0, n = it.images.length;
     const pic = n ? `<img class="hero" src="${esc(it.images[Math.min(k, n - 1)])}" data-open="${i}" alt="">` : `<div class="hero ph">${esc(it.title.charAt(0).toUpperCase())}</div>`;
+    const cur = n ? it.images[Math.min(k, n - 1)] : '';
+    const star = n ? `<button class="fav${this._isFav(it, cur) ? ' on' : ''}" data-fav="${i}" title="Als Favorit zuerst zeigen" aria-label="favourite">${this._isFav(it, cur) ? '★' : '☆'}</button>` : '';
     const dots = n > 1 ? `<div class="dots">${it.images.map((_, j) => `<span class="dot${j === k ? ' on' : ''}" data-img="${j}"></span>`).join('')}</div>` +
       `<button class="ib prev" data-img="${(k - 1 + n) % n}" aria-label="previous picture">‹</button><button class="ib next" data-img="${(k + 1) % n}" aria-label="next picture">›</button>` : '';
     const jump = this._config.jump !== false && items.length > 2
       ? `<select class="jump">${items.map((x, j) => `<option value="${j}"${j === i ? ' selected' : ''}>${esc(x.title)}</option>`).join('')}</select>` : '';
     const vids = it.videos.length ? `<span class="n on" data-video="${i}">${it.videos.length} 🎞</span>` : '';
-    return `<div class="browse"><div class="stage">${pic}${dots}${vids}</div>` +
+    return `<div class="browse"><div class="stage">${pic}${star}${dots}${vids}</div>` +
       `<div class="info binfo">${this._title(it)}${this._meta(it, lang)}${this._badges(it)}${it.text ? `<div class="text">${esc(it.text)}</div>` : ''}</div>` +
       `<div class="nav"><button class="nb" data-go="-1" ${items.length < 2 ? 'disabled' : ''} aria-label="previous">‹</button>` +
       `<span class="ctr">${i + 1}/${items.length}</span>${jump}<button class="nb" data-go="1" ${items.length < 2 ? 'disabled' : ''} aria-label="next">›</button></div></div>`;
@@ -297,6 +332,10 @@ class ProfileGalleryCard extends HTMLElement {
     r.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
       const it = this._shown[+el.dataset.open]; if (it && (it.images.length || it.videos.length)) this._lightbox(it, this._config.mode === 'browse' ? (this._img[it.id] || 0) : 0);
     }));
+    r.querySelectorAll('[data-fav]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation(); const it = this._shown[+b.dataset.fav]; if (!it) return;
+      const n = it.images.length, k = this._img[it.id] || 0; this._toggleFav(it, it.images[Math.min(k, n - 1)]);
+    }));
     r.querySelectorAll('[data-video]').forEach((el) => el.addEventListener('click', (e) => {
       e.stopPropagation(); const it = this._shown[+el.dataset.video]; if (it) this._lightbox(it, it.images.length);
     }));
@@ -310,13 +349,16 @@ class ProfileGalleryCard extends HTMLElement {
     let k = Math.min(start, media.length - 1);
     const box = document.createElement('div');
     box.className = 'pgc-lightbox';
-    box.innerHTML = `<style>${LB_CSS}</style><div class="m"></div><button class="x" aria-label="close">×</button>` +
+    box.innerHTML = `<style>${LB_CSS}</style><div class="m"></div><button class="x" aria-label="close">×</button><button class="f" aria-label="favourite" title="Als Favorit zuerst zeigen">☆</button>` +
       (media.length > 1 ? '<button class="p" aria-label="previous">‹</button><button class="n" aria-label="next">›</button>' : '') + '<span class="c"></span>';
-    const m = box.querySelector('.m'), ctr = box.querySelector('.c');
+    const m = box.querySelector('.m'), ctr = box.querySelector('.c'), fb = box.querySelector('.f');
+    fb.addEventListener('click', (e) => { e.stopPropagation(); const x = media[k]; if (!x.v) { this._toggleFav(it, x.u); setTimeout(show, 0); } });
     const show = () => {
       const x = media[k];
       m.innerHTML = x.v ? `<video src="${esc(x.u)}" controls autoplay playsinline></video>` : `<img src="${esc(x.u)}" alt="">`;
       ctr.textContent = `${k + 1}/${media.length} · ${it.title}`;
+      fb.style.display = x.v ? 'none' : '';
+      fb.textContent = this._isFav(it, x.u) ? '★' : '☆';
     };
     const go = (d) => { k = (k + d + media.length) % media.length; show(); };
     const close = () => { box.remove(); document.removeEventListener('keydown', key); };
@@ -378,6 +420,8 @@ a.title:hover { text-decoration: underline; }
 .dot.on { background: #fff; }
 .ib { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.4); color: #fff; border: 0; width: 36px; height: 48px; font-size: 28px; cursor: pointer; border-radius: 6px; }
 .ib.prev { left: 6px; } .ib.next { right: 6px; }
+.fav { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.45); color: #fff; border: 0; border-radius: 50%; width: 38px; height: 38px; font-size: 22px; cursor: pointer; }
+.fav.on { color: #ffd54a; }
 .binfo { padding: 12px 16px 4px; font-size: 1.05em; }
 .nav { display: flex; align-items: center; gap: 8px; padding: 8px 16px 0; }
 .nb { border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); border-radius: 18px; width: 48px; height: 36px; font-size: 22px; cursor: pointer; }
@@ -391,6 +435,7 @@ const LB_CSS = `
 .pgc-lightbox img, .pgc-lightbox video { max-width: 100vw; max-height: 100vh; object-fit: contain; }
 .pgc-lightbox button { position: absolute; background: rgba(255,255,255,.12); color: #fff; border: 0; font-size: 34px; width: 52px; height: 64px; border-radius: 8px; cursor: pointer; }
 .pgc-lightbox .x { top: 12px; right: 12px; height: 52px; }
+.pgc-lightbox .f { top: 12px; right: 76px; height: 52px; color: #ffd54a; }
 .pgc-lightbox .p { left: 12px; top: 50%; transform: translateY(-50%); }
 .pgc-lightbox .n { right: 12px; top: 50%; transform: translateY(-50%); }
 .pgc-lightbox .c { position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; color: #ddd; font: 14px system-ui, sans-serif; }

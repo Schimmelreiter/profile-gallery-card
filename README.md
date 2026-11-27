@@ -1,6 +1,6 @@
 # Profile Gallery Card
 
-A Lovelace card for Home Assistant that shows **profiles, contacts and calendar events with pictures** – as a **list**, a **grid**, or **one card at a time to browse** (arrows, swipe, counter “3/23”, jump list and search). Clicking a picture opens all pictures of the entry full screen.
+A Lovelace card for Home Assistant that shows **profiles, contacts and calendar events with pictures** – as a **list**, a **grid**, or **one card at a time to browse** (arrows, swipe, counter “3/23”, jump list and search). Clicking a picture opens all pictures of the entry full screen. A star (☆) marks a picture as favourite: it is shown first from then on, saved per Home Assistant user, so on every device.
 
 ![Address book as browse, list and grid](docs/address-book.png)
 
