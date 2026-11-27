@@ -3,7 +3,7 @@
  * Profiles, contacts and calendar events with pictures – as list, grid or one card to browse.
  * https://github.com/Schimmelreiter/profile-gallery-card · GPL-3.0
  */
-const PGC_VERSION = '0.4.4';
+const PGC_VERSION = '0.4.5';
 const FAV_KEY = 'profile-gallery-card';  // favourites per Home Assistant user (frontend user data)
 const imgBase = (u) => String(u || '').replace(/[?#].*$/, '');
 const ITEM_FORMAT = 1; // version of the normalized item format (see README)
@@ -613,8 +613,8 @@ ha-card { overflow: hidden; padding-bottom: 8px; }
 .tb { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.4); color: #fff; border: 0; width: 32px; height: 44px; font-size: 24px; cursor: pointer; border-radius: 6px; }
 .tb.prev { left: 4px; } .tb.next { right: 4px; }
 .tc { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.55); color: #fff; padding: 1px 8px; border-radius: 8px; font-size: .8em; }
-.tv { top: 6px; right: 6px; }
-.tfav { right: auto; left: 8px; }
+/* star top right; picture and video counters top left */
+.tile .n.on, .stage .n.on { right: auto; left: 6px; }
 .notei { color: var(--primary-color); }
 .ctile .controls { padding: 0; }
 .crow { display: flex; align-items: center; gap: 4px; min-height: 48px; }
